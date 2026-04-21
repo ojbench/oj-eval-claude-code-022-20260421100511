@@ -7,15 +7,18 @@ Usage Examples:
 1. Submit Git URL:
    python3 acmoj_client.py --token ${ACMOJ_TOKEN} submit --problem-id ${ACMOJ_PROBLEM_ID} --git-url ${REPO_URL}
    The returned result contains submission_id information, please save it for subsequent status queries
-   
+
    URL format can be HTTPS or SSH:
    - HTTPS: https://github.com/username/repository.git
    - SSH: git@github.com:username/repository.git
 
+1b. Submit local file content (e.g., src.hpp as C++):
+   python3 acmoj_client.py --token ${ACMOJ_TOKEN} submit-file --problem-id ${ACMOJ_PROBLEM_ID} --file /path/to/src.hpp --language cpp
+
 2. Query submission status:
    python3 acmoj_client.py --token ${ACMOJ_TOKEN} status --submission-id <your_submission_id>
    Note: Evaluation takes time, it's recommended to wait 10 seconds before querying status
-   For example, if the returned result shows "status": "compiling" or "status": "pending", 
+   For example, if the returned result shows "status": "compiling" or "status": "pending",
    it means the evaluation is still in progress or queued, please check again later
 
 3. Abort submission:
@@ -42,9 +45,9 @@ class ACMOJClient:
         }
 
         self.submission_log_file = '/workspace/submission_ids.log'
-        
 
-    def _make_request(self, method: str, endpoint: str, data: Dict[str, Any] = None, 
+
+    def _make_request(self, method: str, endpoint: str, data: Dict[str, Any] = None,
                      params: Dict[str, Any] = None) -> Optional[Dict]:
         url = f"{self.api_base}{endpoint}"
         try:
@@ -60,7 +63,7 @@ class ACMOJClient:
                 return {"status": "success", "message": "Operation successful"}
 
             response.raise_for_status()
-            
+
             if response.content:
                 return response.json()
             else:
@@ -79,10 +82,10 @@ class ACMOJClient:
                 "timestamp": timestamp,
                 "submission_id": submission_id
             }
-            
+
             with open(self.submission_log_file, 'a') as f:
                 f.write(json.dumps(log_entry) + '\n')
-            
+
             print(f"✅ Submission ID {submission_id} saved to {self.submission_log_file}")
         except Exception as e:
             print(f"⚠️ Warning: Failed to save submission ID: {e}")
@@ -95,6 +98,13 @@ class ACMOJClient:
 
         return result
 
+    def submit_code(self, problem_id: int, code: str, language: str = "cpp") -> Optional[Dict]:
+        data = {"language": language, "code": code}
+        result = self._make_request("POST", f"/problem/{problem_id}/submit", data=data)
+        if result and 'id' in result:
+            self._save_submission_id(result['id'])
+        return result
+
     def get_submission_detail(self, submission_id: int) -> Optional[Dict]:
         return self._make_request("GET", f"/submission/{submission_id}")
 
@@ -104,15 +114,21 @@ class ACMOJClient:
 
 def main():
     parser = argparse.ArgumentParser(description="ACMOJ API Command Line Client")
-    parser.add_argument("--token", help="ACMOJ Access Token", 
+    parser.add_argument("--token", help="ACMOJ Access Token",
                        default=os.environ.get("ACMOJ_TOKEN"))
-    
+
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # Git submission sub-command
     submit_parser = subparsers.add_parser("submit", help="Submit Git repository")
     submit_parser.add_argument("--problem-id", type=int, required=True, help="Problem ID")
     submit_parser.add_argument("--git-url", type=str, required=True, help="Git repository URL")
+
+    # File submission sub-command
+    submit_file_parser = subparsers.add_parser("submit-file", help="Submit local code file content")
+    submit_file_parser.add_argument("--problem-id", type=int, required=True, help="Problem ID")
+    submit_file_parser.add_argument("--file", type=str, required=True, help="Path to code file (e.g., src.hpp)")
+    submit_file_parser.add_argument("--language", type=str, default="cpp", help="Language (default: cpp)")
 
     # Sub-command for checking submission status
     status_parser = subparsers.add_parser("status", help="Check submission status")
@@ -132,6 +148,14 @@ def main():
 
     if args.command == "submit":
         result = client.submit_git(args.problem_id, args.git_url)
+    elif args.command == "submit-file":
+        try:
+            with open(args.file, 'r', encoding='utf-8') as f:
+                code = f.read()
+        except Exception as e:
+            print(f"Failed to read file {args.file}: {e}")
+            return
+        result = client.submit_code(args.problem_id, code, args.language)
     elif args.command == "status":
         result = client.get_submission_detail(args.submission_id)
     elif args.command == "abort":
